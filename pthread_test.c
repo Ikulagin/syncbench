@@ -8,6 +8,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include "hpctimer.h"
 
 #include <getopt.h>
 
@@ -38,7 +39,7 @@ enum cs_method {
 
 typedef struct global_params_s {
     int n_threads;
-    long long int (*cs_ptr)(void);
+    double (*cs_ptr)(void);
 } global_params;
 
 typedef struct thread_info_s  {
@@ -47,15 +48,15 @@ typedef struct thread_info_s  {
     char status_path[ARRAY_SIZE];
 } thread_info;
 
-long long int cs_normal_pthread_mutex();
-long long int cs_adaptive_pthread_mutex();
-long long int cs_pthread_spin();
+double cs_normal_pthread_mutex();
+double cs_adaptive_pthread_mutex();
+double cs_pthread_spin();
 
 static char cs_method_pnames[CS_METHOD_CNT][STR_LNGTH] =
 { "normal-pthread-mtx",
   "adaptive-pthread-mtx",
   "pthread-spin" };
-long long int (*cs_methods_array[CS_METHOD_CNT])() = 
+double (*cs_methods_array[CS_METHOD_CNT])() = 
 { cs_normal_pthread_mutex,
   cs_adaptive_pthread_mutex,
   cs_pthread_spin };
@@ -113,73 +114,70 @@ pthread_spinlock_t spin;
 int global_array[ARRAY_SIZE];
 
 /*The the critical section being measured with normal pthread_mutex*/
-long long int cs_normal_pthread_mutex()
+double cs_normal_pthread_mutex()
 {
-    long long int tsc_diff = 0;
+    double t_total = 0;
 
     for (int i = 0; i < NUM_ITERATION; i++) {
-        long long int tsc_begin = 0, tsc_end = 0;
+        double t = 0;
 
-        RDTSC(tsc_begin);
+        t = hpctimer_wtime();
         pthread_mutex_lock(&m);
-        RDTSC(tsc_end);
+        t_total += hpctimer_wtime() - t;
 
-        tsc_diff += (tsc_end - tsc_begin);
         global_array[i % ARRAY_SIZE]++;
 
         pthread_mutex_unlock(&m);
     }
 
-    return tsc_diff;
+    return t_total;
 }
 
 /*The the critical section being measured with pthread_mutex*/
-long long int cs_adaptive_pthread_mutex()
+double cs_adaptive_pthread_mutex()
 {
-    long long int tsc_diff = 0;
+    double t_total = 0;
     
     for (int i = 0; i < NUM_ITERATION; i++) {
-        long long int tsc_begin = 0, tsc_end = 0;
+        double t = 0;
 
-        RDTSC(tsc_begin);
+        t = hpctimer_wtime();
         pthread_mutex_lock(&m);
-        RDTSC(tsc_end);
+        t_total += hpctimer_wtime() - t;
 
-        tsc_diff += (tsc_end - tsc_begin);
         global_array[i % ARRAY_SIZE]++;
 
         pthread_mutex_unlock(&m);
     }
 
-    return tsc_diff;
+    return t_total;
 }
 
 /*The the critical section being measured with pthread_spin*/
-long long int cs_pthread_spin()
+double cs_pthread_spin()
 {
-    long long int tsc_diff = 0;
+    double t_total = 0;
     
     for (int i = 0; i < NUM_ITERATION; i++) {
-        long long int tsc_begin = 0, tsc_end = 0;
+        double t = 0;
 
-        RDTSC(tsc_begin);
+        t = hpctimer_wtime();
         pthread_spin_lock(&spin);
-        RDTSC(tsc_end);
+        t_total += (hpctimer_wtime() - t);
 
-        tsc_diff += (tsc_end - tsc_begin);
         global_array[i % ARRAY_SIZE]++;
 
         pthread_spin_unlock(&spin);
     }
 
-    return tsc_diff;
+    return t_total;
 }
 
 
 pthread_barrier_t barrier;
 void *thread_fnc(void *arg)
 {
-    long long int tsc_val = 0;
+    double t = 0;
     uint64_t ctxt_sw_v_before = 0, ctxt_sw_v_after = 0;
     uint64_t ctxt_sw_inv_before = 0, ctxt_sw_inv_after = 0;
     uint64_t ctxt_sw_total_before = 0, ctxt_sw_total_after = 0;
@@ -188,7 +186,7 @@ void *thread_fnc(void *arg)
     pthread_barrier_wait(&barrier);
 
     ctxt_switch_get(ts, &ctxt_sw_v_before, &ctxt_sw_inv_before, &ctxt_sw_total_before);
-    tsc_val = g_params.cs_ptr();
+    t = g_params.cs_ptr();
     ctxt_switch_get(ts, &ctxt_sw_v_after, &ctxt_sw_inv_after, &ctxt_sw_total_after);
 
     pthread_barrier_wait(&barrier);
@@ -201,7 +199,7 @@ void *thread_fnc(void *arg)
         ctxt_sw_inv_after - ctxt_sw_inv_before);
     printf("context switch total       %7ld %6ld %6ld\n",  ctxt_sw_total_before, ctxt_sw_total_after,
         ctxt_sw_total_after - ctxt_sw_total_before);
-    printf("tsc = %Ld\n", tsc_val / NUM_ITERATION);
+    printf("time = %lf\n", t / NUM_ITERATION);
     pthread_mutex_unlock(&m);    
 
     return NULL;
@@ -261,6 +259,7 @@ int main(int argc, char **argv)
 
     process_arguments(argc, argv);
 
+    hpctimer_initialize();
     pthread_spin_init(&spin, PTHREAD_PROCESS_PRIVATE);
     pthread_barrier_init(&barrier, NULL, g_params.n_threads);
 
