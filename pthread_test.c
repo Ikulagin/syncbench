@@ -26,10 +26,9 @@
         (Var) = ((unsigned long long int) _hi << 32) | _lo; })
 
 enum {
-    NUM_THREADS = 3,
     STR_LNGTH = 32,
     ARRAY_SIZE = 1024,
-    NUM_ITERATION = 10240,
+    NUM_ITERATION = 102400,
 };
 
 enum cs_method {
@@ -44,12 +43,6 @@ typedef struct global_params_s {
     int affinity;
     double (*cs_ptr)(void);
 } global_params;
-
-typedef struct thread_info_s  {
-    pid_t pid;
-    pid_t tid;
-    char status_path[ARRAY_SIZE];
-} thread_info;
 
 double cs_normal_pthread_mutex();
 double cs_adaptive_pthread_mutex();
@@ -70,49 +63,8 @@ pid_t gettid()
     return syscall(SYS_gettid);
 }
 
-thread_info *thread_info_init()
-{
-    thread_info *tmp = calloc(1, sizeof(thread_info));
-
-    if (tmp == NULL) {
-        fprintf(stderr, "[%s:%d] malloc error\n", __func__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    tmp->pid = getpid();
-    tmp->tid = gettid();
-    sprintf(tmp->status_path, "/proc/%d/task/%d/status", tmp->pid, tmp->tid);
-    
-    return tmp;
-}
-
-void ctxt_switch_get(thread_info *t, uint64_t *vltr, uint64_t *invltr, uint64_t *total)
-{
-    char buf[ARRAY_SIZE];
-    FILE *f;
-    
-    if ((f = fopen(t->status_path, "r")) == NULL) {
-        fprintf(stderr, "[%s:%d] fopen error\n", __func__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    while(!feof(f)) {
-        if (fgets(buf, sizeof(buf), f) == NULL)
-            break;
-        if (!strncmp(buf, "voluntary_ctxt_switches:", 24)) {
-            (void)sscanf(buf + 24, "%" SCNu64, vltr);
-            continue;
-        }
-        if (!strncmp(buf, "nonvoluntary_ctxt_switches:", 27)) {
-            (void)sscanf(buf + 27, "%" SCNu64, invltr);
-            continue;
-        }
-    }
-    fclose(f);
-    *total = *vltr + *invltr;
-}
-
 pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t m_adapt = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
 pthread_spinlock_t spin;
 int global_array[ARRAY_SIZE];
 
@@ -145,12 +97,12 @@ double cs_adaptive_pthread_mutex()
         double t = 0;
 
         t = hpctimer_wtime();
-        pthread_mutex_lock(&m);
+        pthread_mutex_lock(&m_adapt);
         t_total += hpctimer_wtime() - t;
 
         global_array[i % ARRAY_SIZE]++;
 
-        pthread_mutex_unlock(&m);
+        pthread_mutex_unlock(&m_adapt);
     }
 
     return t_total;
@@ -176,36 +128,110 @@ double cs_pthread_spin()
     return t_total;
 }
 
+typedef struct thread_info_s  {
+    int rank;
+    pid_t pid;
+    pid_t tid;
+    char status_path[ARRAY_SIZE];
+} thread_info;
+
+void ctxt_switch_get(thread_info *t, uint64_t *vltr, uint64_t *invltr, uint64_t *total)
+{
+    char buf[ARRAY_SIZE];
+    FILE *f;
+    
+    if ((f = fopen(t->status_path, "r")) == NULL) {
+        fprintf(stderr, "[%s:%d] fopen error\n", __func__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    while(!feof(f)) {
+        if (fgets(buf, sizeof(buf), f) == NULL)
+            break;
+        if (!strncmp(buf, "voluntary_ctxt_switches:", 24)) {
+            (void)sscanf(buf + 24, "%" SCNu64, vltr);
+            continue;
+        }
+        if (!strncmp(buf, "nonvoluntary_ctxt_switches:", 27)) {
+            (void)sscanf(buf + 27, "%" SCNu64, invltr);
+            continue;
+        }
+    }
+    fclose(f);
+    *total = *vltr + *invltr;
+}
+
+typedef struct measured_params_s {
+    double lock_time;
+    uint64_t ctxt_sw_v; /*voluntary context switches*/
+    uint64_t ctxt_sw_nonv; /*nonvoluntary context switches*/
+    uint64_t ctxt_sw_total; /*voluntary and nonvoluntary context switches*/
+} measured_params;
+
+measured_params *m_params;
+thread_info *t_info;
 
 pthread_barrier_t barrier;
 void *thread_fnc(void *arg)
 {
+    int rank = *(int *)arg;
     double t = 0;
     uint64_t ctxt_sw_v_before = 0, ctxt_sw_v_after = 0;
     uint64_t ctxt_sw_inv_before = 0, ctxt_sw_inv_after = 0;
     uint64_t ctxt_sw_total_before = 0, ctxt_sw_total_after = 0;
-    thread_info *ts = thread_info_init();
+
+    t_info[rank].pid = getpid();
+    t_info[rank].tid = gettid();
+    sprintf(t_info[rank].status_path, "/proc/%d/task/%d/status", t_info[rank].pid, t_info[rank].tid);
     
     pthread_barrier_wait(&barrier);
 
-    ctxt_switch_get(ts, &ctxt_sw_v_before, &ctxt_sw_inv_before, &ctxt_sw_total_before);
+    ctxt_switch_get(&t_info[rank], &ctxt_sw_v_before, &ctxt_sw_inv_before, &ctxt_sw_total_before);
     t = g_params.cs_ptr();
-    ctxt_switch_get(ts, &ctxt_sw_v_after, &ctxt_sw_inv_after, &ctxt_sw_total_after);
+    ctxt_switch_get(&t_info[rank], &ctxt_sw_v_after, &ctxt_sw_inv_after, &ctxt_sw_total_after);
 
     pthread_barrier_wait(&barrier);
 
     pthread_mutex_lock(&m);
-    printf("%27c before  after   diff\n", ' ');
-    printf("context switch volunrary:  %7ld %6ld %6ld\n", ctxt_sw_v_before, ctxt_sw_v_after,
-        ctxt_sw_v_after - ctxt_sw_v_before);
-    printf("context switch involunrary %7ld %6ld %6ld\n", ctxt_sw_inv_before, ctxt_sw_inv_after,
-        ctxt_sw_inv_after - ctxt_sw_inv_before);
-    printf("context switch total       %7ld %6ld %6ld\n",  ctxt_sw_total_before, ctxt_sw_total_after,
-        ctxt_sw_total_after - ctxt_sw_total_before);
-    printf("time = %.10lf\n", t / NUM_ITERATION);
-    pthread_mutex_unlock(&m);    
+    m_params[rank].lock_time = t / NUM_ITERATION;
+    m_params[rank].ctxt_sw_v = ctxt_sw_v_after - ctxt_sw_v_before;
+    m_params[rank].ctxt_sw_nonv = ctxt_sw_inv_after - ctxt_sw_inv_before;
+    m_params[rank].ctxt_sw_total = ctxt_sw_total_after - ctxt_sw_total_before;
+    pthread_mutex_unlock(&m);
 
     return NULL;
+}
+
+void print_measured_params()
+{
+    double avg_lock_time = 0;
+    uint64_t avg_ctxt_sw_v = 0, avg_ctxt_sw_nonv = 0, avg_ctxt_sw_total = 0;
+    printf("    context switch volunrary" \
+           "  context switch involunrary" \
+           "        context switch total" \
+           "                  lock time\n");
+    for (int i = 0; i < g_params.n_threads; i++) {
+        printf("%28ld ", m_params[i].ctxt_sw_v);
+        printf("%27ld ", m_params[i].ctxt_sw_nonv);
+        printf("%27ld ", m_params[i].ctxt_sw_total);
+        printf("%26.10lf\n", m_params[i].lock_time);
+        avg_ctxt_sw_v += m_params[i].ctxt_sw_v;
+        avg_ctxt_sw_nonv += m_params[i].ctxt_sw_nonv;
+        avg_ctxt_sw_total += m_params[i].ctxt_sw_total;
+        avg_lock_time += m_params[i].lock_time;
+    }
+    printf("============================" \
+           "============================" \
+           "============================" \
+           "===========================\n");
+    avg_ctxt_sw_v /= g_params.n_threads;
+    avg_ctxt_sw_nonv /= g_params.n_threads;
+    avg_ctxt_sw_total /= g_params.n_threads;
+    avg_lock_time /= g_params.n_threads;
+    printf("%28ld ", avg_ctxt_sw_v);
+    printf("%27ld ", avg_ctxt_sw_nonv);
+    printf("%27ld ", avg_ctxt_sw_total);
+    printf("%26.10lf\n", avg_lock_time);
 }
 
 void process_arguments(int argc, char **argv)
@@ -276,35 +302,46 @@ int main(int argc, char **argv)
     pthread_barrier_init(&barrier, NULL, g_params.n_threads);
     pthread_attr_init(&attr);
 
+    m_params = (measured_params *)calloc(sizeof(measured_params), g_params.n_threads);
+    t_info = (thread_info *)calloc(sizeof(thread_info), g_params.n_threads);
     thread_id = (pthread_t *)calloc(sizeof(pthread_t), g_params.n_threads);
+
+    t_info[0].rank = 0;
     thread_id[0] = pthread_self();
     if (g_params.affinity) {
         for (int i = 0; i < g_params.n_threads - 1; i++) {
+            t_info[i + 1].rank = i + 1;
             CPU_ZERO(&cpus);
             CPU_SET((i + 1) % cpu_cnt, &cpus);
             pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
-            pthread_create(&thread_id[i+1], &attr, thread_fnc, &g_params.n_threads);
+            pthread_create(&thread_id[i+1], &attr, thread_fnc, &t_info[i + 1].rank);
         }
         CPU_ZERO(&cpus);
         CPU_SET(0, &cpus);
         pthread_setaffinity_np(thread_id[0], sizeof(cpu_set_t), &cpus);
     } else {
         for (int i = 0; i < g_params.n_threads - 1; i++) {
-            pthread_create(&thread_id[i+1], NULL, thread_fnc, &g_params.n_threads);
+            t_info[i + 1].rank = i + 1;
+            pthread_create(&thread_id[i+1], NULL, thread_fnc, &t_info[i + 1].rank);
         }
     }
 
     TIMER_READ(start);
-    thread_fnc(&g_params.n_threads);
+    thread_fnc(&t_info[0].rank);
     TIMER_READ(stop);
     for (int i = 0; i < g_params.n_threads - 1; i++) {
         pthread_join(thread_id[i+1], NULL);
     }
-    free(thread_id);
-
+    print_measured_params();
+    
     pthread_spin_destroy(&spin);
     pthread_barrier_destroy(&barrier);
     pthread_attr_destroy(&attr);
+    pthread_mutex_destroy(&m);
+    pthread_mutex_destroy(&m_adapt);
+    free(m_params);
+    free(t_info);
+    free(thread_id);
     
     printf("all threads are joined\n");
     printf("total time: %f\n", TIMER_DIFF_SECONDS(start, stop));
