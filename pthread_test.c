@@ -1,3 +1,4 @@
+#define _GNU_SOURCE 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -7,10 +8,11 @@
 #include <inttypes.h>
 #include <string.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdatomic.h>
-#include "hpctimer.h"
-
 #include <getopt.h>
+
+#include "hpctimer.h"
 
 #define TIMER_T struct timeval
 #define TIMER_READ(time) gettimeofday(&(time), NULL)
@@ -39,6 +41,7 @@ enum cs_method {
 
 typedef struct global_params_s {
     int n_threads;
+    int affinity;
     double (*cs_ptr)(void);
 } global_params;
 
@@ -199,7 +202,7 @@ void *thread_fnc(void *arg)
         ctxt_sw_inv_after - ctxt_sw_inv_before);
     printf("context switch total       %7ld %6ld %6ld\n",  ctxt_sw_total_before, ctxt_sw_total_after,
         ctxt_sw_total_after - ctxt_sw_total_before);
-    printf("time = %lf\n", t / NUM_ITERATION);
+    printf("time = %.10lf\n", t / NUM_ITERATION);
     pthread_mutex_unlock(&m);    
 
     return NULL;
@@ -211,12 +214,14 @@ void process_arguments(int argc, char **argv)
     
     g_params.cs_ptr = cs_methods_array[NORMAL_PTHREAD_MTX];
     g_params.n_threads = 1;
+    g_params.affinity = 0;
     
     while (1) {
         int option_index = 0;
         static struct option long_options[] = {
             {"cs-method",required_argument, 0, 'c'},
             {"threads",  required_argument, 0, 't'},
+            {"affinity", no_argument,       0, 'a'},
             {"help",     no_argument,       0, 'h'}
         };
 
@@ -239,6 +244,10 @@ void process_arguments(int argc, char **argv)
             g_params.n_threads = atoi(optarg);
             printf("%d threads will be runned\n", g_params.n_threads);
             break;
+        case 'a':
+            g_params.affinity = 1;
+            printf("Affinity is enabled\n");
+            break;
         case 'h':
             printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin>\n");
             exit(EXIT_SUCCESS);
@@ -254,7 +263,10 @@ void process_arguments(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+    long cpu_cnt = sysconf(_SC_NPROCESSORS_ONLN);
     pthread_t *thread_id;
+    cpu_set_t cpus;
+    pthread_attr_t attr;
     TIMER_T start, stop;
 
     process_arguments(argc, argv);
@@ -262,22 +274,37 @@ int main(int argc, char **argv)
     hpctimer_initialize();
     pthread_spin_init(&spin, PTHREAD_PROCESS_PRIVATE);
     pthread_barrier_init(&barrier, NULL, g_params.n_threads);
+    pthread_attr_init(&attr);
 
     thread_id = (pthread_t *)calloc(sizeof(pthread_t), g_params.n_threads);
-    for (int i = 0; i < g_params.n_threads - 1; i++) {
-        pthread_create(&thread_id[i], NULL, thread_fnc, &g_params.n_threads);
+    thread_id[0] = pthread_self();
+    if (g_params.affinity) {
+        for (int i = 0; i < g_params.n_threads - 1; i++) {
+            CPU_ZERO(&cpus);
+            CPU_SET((i + 1) % cpu_cnt, &cpus);
+            pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpus);
+            pthread_create(&thread_id[i+1], &attr, thread_fnc, &g_params.n_threads);
+        }
+        CPU_ZERO(&cpus);
+        CPU_SET(0, &cpus);
+        pthread_setaffinity_np(thread_id[0], sizeof(cpu_set_t), &cpus);
+    } else {
+        for (int i = 0; i < g_params.n_threads - 1; i++) {
+            pthread_create(&thread_id[i+1], NULL, thread_fnc, &g_params.n_threads);
+        }
     }
 
     TIMER_READ(start);
     thread_fnc(&g_params.n_threads);
     TIMER_READ(stop);
     for (int i = 0; i < g_params.n_threads - 1; i++) {
-        pthread_join(thread_id[i], NULL);
+        pthread_join(thread_id[i+1], NULL);
     }
     free(thread_id);
 
     pthread_spin_destroy(&spin);
     pthread_barrier_destroy(&barrier);
+    pthread_attr_destroy(&attr);
     
     printf("all threads are joined\n");
     printf("total time: %f\n", TIMER_DIFF_SECONDS(start, stop));
