@@ -12,6 +12,7 @@
 #include <stdatomic.h>
 #include <getopt.h>
 
+#include "split_mutex.h"
 #include "hpctimer.h"
 
 #define TIMER_T struct timeval
@@ -35,6 +36,7 @@ enum cs_method {
     NORMAL_PTHREAD_MTX = 0,
     ADAPTIVE_PTHREAD_MTX,
     PTHREAD_SPIN,
+    SPLIT_MTX,
     CS_METHOD_CNT
 };
 
@@ -47,15 +49,18 @@ typedef struct global_params_s {
 double cs_normal_pthread_mutex();
 double cs_adaptive_pthread_mutex();
 double cs_pthread_spin();
+double cs_split_mutex();
 
 static char cs_method_pnames[CS_METHOD_CNT][STR_LNGTH] =
 { "normal-pthread-mtx",
   "adaptive-pthread-mtx",
-  "pthread-spin" };
+  "pthread-spin",
+  "split-mtx" };
 double (*cs_methods_array[CS_METHOD_CNT])() = 
 { cs_normal_pthread_mutex,
   cs_adaptive_pthread_mutex,
-  cs_pthread_spin };
+  cs_pthread_spin,
+  cs_split_mutex };
 static global_params g_params;
 
 pid_t gettid()
@@ -66,6 +71,7 @@ pid_t gettid()
 pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t m_adapt = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
 pthread_spinlock_t spin;
+split_mutex_t m_split = SPLIT_MUTEX_INITIALIZER;
 int global_array[ARRAY_SIZE];
 
 /*The the critical section being measured with normal pthread_mutex*/
@@ -123,6 +129,26 @@ double cs_pthread_spin()
         global_array[i % ARRAY_SIZE]++;
 
         pthread_spin_unlock(&spin);
+    }
+
+    return t_total;
+}
+
+/*The the critical section being measured with split_mutex*/
+double cs_split_mutex()
+{
+    double t_total = 0;
+    
+    for (int i = 0; i < NUM_ITERATION; i++) {
+        double t = 0;
+
+        t = hpctimer_wtime();
+        split_mutex_lock(&m_split);
+        t_total += (hpctimer_wtime() - t);
+
+        global_array[i % ARRAY_SIZE]++;
+
+        split_mutex_unlock(&m_split);
     }
 
     return t_total;
@@ -275,12 +301,12 @@ void process_arguments(int argc, char **argv)
             printf("Affinity is enabled\n");
             break;
         case 'h':
-            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin>\n");
+            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, split-mtx>\n");
             exit(EXIT_SUCCESS);
             break;
         default:
             printf("?? getopt returned character code %c ??\n", c);
-            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin>\n");
+            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, split-mtx>\n");
             exit(EXIT_FAILURE);
         }
     }
