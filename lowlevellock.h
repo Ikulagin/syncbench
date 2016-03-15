@@ -1,14 +1,13 @@
 #ifndef _LOWLEVELLOCK_H
 #define _LOWLEVELLOCK_H	1
 
+#include "sysdep.h"
+
 #ifndef __ASSEMBLER__
 
-#define RDI_LP "rdi"
-#define RSP_LP "rsp"
+#define SYS_futex		__NR_futex
 
 #define LOCK_INSTR "lock;"
-
-#define SYS_futex		__NR_futex
 
 #define __lll_lock_asm_start LOCK_INSTR "cmpxchgl %4, %2\n\t"		      \
 			      "jz 24f\n\t"
