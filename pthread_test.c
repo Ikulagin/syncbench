@@ -372,5 +372,11 @@ int main(int argc, char **argv)
     printf("all threads are joined\n");
     printf("total time: %f\n", TIMER_DIFF_SECONDS(start, stop));
     
+    for (int i = 1, tmp = global_array[0]; i < ARRAY_SIZE; i++) {
+        if (tmp != global_array[i]) {
+            fprintf(stderr, "%d failed\n", i);
+        }
+    }
+         
     return 0;
 }
