@@ -36,6 +36,7 @@ __lll_lock_wait:
 
 	cmpl	%edx, %eax	/* NB:	 %edx == 2 */
 	jne	2f
+    nop
 
 1:	movl	$SYS_futex, %eax
 	syscall

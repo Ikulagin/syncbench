@@ -1,0 +1,30 @@
+VPATH = @srcdir@
+srcdir = @srcdir@ 
+top_build_dir = @top_builddir@
+top_src_dir = @top_srcdir@
+
+CC = @CC@
+CFLAGS += -Wall
+
+TARGETS = array_counter_tst.out
+
+test_objects = hpctimer.o array_counter_tst.o
+
+CFLAGS += -Wall -O2 -fgnu-tm -I$(top_src_dir)/smart_mutex
+LDFLAGS += -Wall -O2 -fgnu-tm -pthread
+
+libraries_path = -L$(top_build_dir)/smart_mutex
+libraries = -lsmart_mutex
+
+LDFLAGS += $(libraries_path) $(libraries)
+
+.PHONY: all $(TARGETS)
+
+all: $(TARGETS)
+
+array_counter_tst.out: $(test_objects)
+		$(CC) $(LDFLAGS) -o $@ $^
+%.o: %.c
+		$(CC) $(CFLAGS) -o $@ -c $<
+clean:
+		rm -rf $(TARGETS) $(test_mutex_objects)

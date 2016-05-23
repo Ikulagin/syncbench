@@ -1,0 +1,26 @@
+libsmart_mutex_objects = lowlevellock.o smart_mutex.o
+
+VPATH = @srcdir@
+srcdir = @srcdir@ 
+
+CC = @CC@
+CFLAGS += -Wall -O2
+LDFLAGS += -Wall -O2 -fPIC -shared -pthread 
+
+TARGETS = libsmart_mutex.so
+
+.PHONY: all $(TARGETS)
+
+all: $(TARGETS)
+
+libsmart_mutex.so: $(libsmart_mutex_objects)
+		$(CC) $(LDFLAGS) -o $@ $^
+
+%.o: %.c
+		$(CC) $(CFLAGS) -o $@ -c $<
+
+%.o: %.S
+		$(CC) -Wall -o $@ -c $<
+
+clean:
+		rm -rf $(thread_pool_objects) $(TARGETS)

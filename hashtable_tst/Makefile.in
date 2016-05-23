@@ -1,0 +1,31 @@
+VPATH = @srcdir@
+srcdir = @srcdir@ 
+top_build_dir = @top_builddir@
+top_src_dir = @top_srcdir@
+
+CC = @CC@
+CFLAGS += -Wall
+
+TARGETS = ht_tst.out
+
+test_objects = hashtable.o list.o main.o
+
+CFLAGS +=  -Wall -O2 -I$(top_src_dir)/thread_pool -I$(top_src_dir)/smart_mutex
+LDFLAGS += -Wall -O2 -pthread
+
+libraries_path = -L$(top_build_dir)/thread_pool -L$(top_build_dir)/smart_mutex
+libraries = -lthread_pool -lsmart_mutex
+
+LDFLAGS += $(libraries_path)
+
+.PHONY: all $(TARGETS)
+
+all: $(TARGETS)
+
+ht_tst.out: $(test_objects)
+		$(CC) $(LDFLAGS) -o $@ $^ $(libraries)
+
+%.o: %.c
+		$(CC) $(CFLAGS) -o $@ -c $<
+clean:
+		rm -rf $(TARGETS) $(test_objects)

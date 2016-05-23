@@ -12,7 +12,7 @@
 #include <stdatomic.h>
 #include <getopt.h>
 
-#include "split_mutex.h"
+#include "smart_mutex.h"
 #include "hpctimer.h"
 
 #define TIMER_T struct timeval
@@ -36,31 +36,35 @@ enum cs_method {
     NORMAL_PTHREAD_MTX = 0,
     ADAPTIVE_PTHREAD_MTX,
     PTHREAD_SPIN,
-    SPLIT_MTX,
+    SMART_MTX,
+    STM,
     CS_METHOD_CNT
 };
 
 typedef struct global_params_s {
     int n_threads;
     int affinity;
-    double (*cs_ptr)(void);
+    double (*cs_ptr)(int);
 } global_params;
 
-double cs_normal_pthread_mutex();
-double cs_adaptive_pthread_mutex();
-double cs_pthread_spin();
-double cs_split_mutex();
+double cs_normal_pthread_mutex(int rank);
+double cs_adaptive_pthread_mutex(int rank);
+double cs_pthread_spin(int rank);
+double cs_smart_mutex(int rank);
+double cs_stm(int rank);
 
 static char cs_method_pnames[CS_METHOD_CNT][STR_LNGTH] =
 { "normal-pthread-mtx",
   "adaptive-pthread-mtx",
   "pthread-spin",
-  "split-mtx" };
-double (*cs_methods_array[CS_METHOD_CNT])() = 
+  "smart-mtx",
+  "stm" };
+double (*cs_methods_array[CS_METHOD_CNT])(int) = 
 { cs_normal_pthread_mutex,
   cs_adaptive_pthread_mutex,
   cs_pthread_spin,
-  cs_split_mutex };
+  cs_smart_mutex,
+  cs_stm };
 static global_params g_params;
 
 pid_t gettid()
@@ -68,14 +72,14 @@ pid_t gettid()
     return syscall(SYS_gettid);
 }
 
-pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t m_adapt = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
-pthread_spinlock_t spin;
-split_mutex_t m_split = SPLIT_MUTEX_INITIALIZER;
-int global_array[ARRAY_SIZE];
+pthread_mutex_t m __attribute__((aligned (64))) = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t m_adapt __attribute__((aligned (64))) = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
+pthread_spinlock_t spin __attribute__((aligned (64)));
+smart_mutex_t m_smart __attribute__((aligned (64))) = SMART_MUTEX_INITIALIZER;
+int global_array[ARRAY_SIZE]  __attribute__((aligned (64)));
 
 /*The the critical section being measured with normal pthread_mutex*/
-double cs_normal_pthread_mutex()
+double cs_normal_pthread_mutex(int rank)
 {
     double t_total = 0;
 
@@ -84,18 +88,18 @@ double cs_normal_pthread_mutex()
 
         t = hpctimer_wtime();
         pthread_mutex_lock(&m);
-        t_total += hpctimer_wtime() - t;
 
         global_array[i % ARRAY_SIZE]++;
 
         pthread_mutex_unlock(&m);
+        t_total += hpctimer_wtime() - t;
     }
 
     return t_total;
 }
 
 /*The the critical section being measured with pthread_mutex*/
-double cs_adaptive_pthread_mutex()
+double cs_adaptive_pthread_mutex(int rank)
 {
     double t_total = 0;
     
@@ -104,18 +108,18 @@ double cs_adaptive_pthread_mutex()
 
         t = hpctimer_wtime();
         pthread_mutex_lock(&m_adapt);
-        t_total += hpctimer_wtime() - t;
 
         global_array[i % ARRAY_SIZE]++;
 
         pthread_mutex_unlock(&m_adapt);
+        t_total += hpctimer_wtime() - t;
     }
 
     return t_total;
 }
 
 /*The the critical section being measured with pthread_spin*/
-double cs_pthread_spin()
+double cs_pthread_spin(int rank)
 {
     double t_total = 0;
     
@@ -124,18 +128,18 @@ double cs_pthread_spin()
 
         t = hpctimer_wtime();
         pthread_spin_lock(&spin);
-        t_total += (hpctimer_wtime() - t);
-
+        
         global_array[i % ARRAY_SIZE]++;
 
         pthread_spin_unlock(&spin);
+        t_total += (hpctimer_wtime() - t);
     }
 
     return t_total;
 }
 
-/*The the critical section being measured with split_mutex*/
-double cs_split_mutex()
+/*The the critical section being measured with smart_mutex*/
+double cs_smart_mutex(int rank)
 {
     double t_total = 0;
     
@@ -143,16 +147,37 @@ double cs_split_mutex()
         double t = 0;
 
         t = hpctimer_wtime();
-        split_mutex_lock(&m_split);
-        t_total += (hpctimer_wtime() - t);
+        smart_mutex_lock(&m_smart);
 
         global_array[i % ARRAY_SIZE]++;
 
-        split_mutex_unlock(&m_split);
+        smart_mutex_unlock(&m_smart);
+        t_total += (hpctimer_wtime() - t);
     }
 
     return t_total;
 }
+
+/*The the critical section being measured with transactional memory*/
+double cs_stm(int rank)
+{
+    double t_total = 0;
+    
+    for (int i = 0; i < NUM_ITERATION; i++) {
+        double t = 0;
+
+        t = hpctimer_wtime();
+        __transaction_atomic {
+
+            global_array[i % ARRAY_SIZE]++;
+
+        }
+        t_total += (hpctimer_wtime() - t);
+    }
+
+    return t_total;
+}
+
 
 typedef struct thread_info_s  {
     int rank;
@@ -213,17 +238,15 @@ void *thread_fnc(void *arg)
     pthread_barrier_wait(&barrier);
 
     ctxt_switch_get(&t_info[rank], &ctxt_sw_v_before, &ctxt_sw_inv_before, &ctxt_sw_total_before);
-    t = g_params.cs_ptr();
+    t = g_params.cs_ptr(rank);
     ctxt_switch_get(&t_info[rank], &ctxt_sw_v_after, &ctxt_sw_inv_after, &ctxt_sw_total_after);
 
     pthread_barrier_wait(&barrier);
 
-    pthread_mutex_lock(&m);
     m_params[rank].lock_time = t / NUM_ITERATION;
     m_params[rank].ctxt_sw_v = ctxt_sw_v_after - ctxt_sw_v_before;
     m_params[rank].ctxt_sw_nonv = ctxt_sw_inv_after - ctxt_sw_inv_before;
     m_params[rank].ctxt_sw_total = ctxt_sw_total_after - ctxt_sw_total_before;
-    pthread_mutex_unlock(&m);
 
     return NULL;
 }
@@ -235,7 +258,7 @@ void print_measured_params()
     printf("    context switch volunrary" \
            "  context switch involunrary" \
            "        context switch total" \
-           "                  lock time\n");
+           "           cs execution time\n");
     for (int i = 0; i < g_params.n_threads; i++) {
         printf("%28ld ", m_params[i].ctxt_sw_v);
         printf("%27ld ", m_params[i].ctxt_sw_nonv);
@@ -301,12 +324,12 @@ void process_arguments(int argc, char **argv)
             printf("Affinity is enabled\n");
             break;
         case 'h':
-            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, split-mtx>\n");
+            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, smart-mtx, stm>\n");
             exit(EXIT_SUCCESS);
             break;
         default:
             printf("?? getopt returned character code %c ??\n", c);
-            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, split-mtx>\n");
+            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, smart-mtx, stm>\n");
             exit(EXIT_FAILURE);
         }
     }
