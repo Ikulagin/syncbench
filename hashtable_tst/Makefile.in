@@ -4,7 +4,6 @@ top_build_dir = @top_builddir@
 top_src_dir = @top_srcdir@
 
 CC = @CC@
-CFLAGS += -Wall
 
 TARGETS = ht_tst.out
 
