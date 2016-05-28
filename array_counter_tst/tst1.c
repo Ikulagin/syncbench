@@ -33,7 +33,7 @@ void *reader(void *arg)
 
 int main(int argc, char **argv)
 {
-    int nthr = 0;
+    int nthr = 1;
     pthread_t r_id;
     TIMER_T begin;
     TIMER_T end;
@@ -44,7 +44,7 @@ int main(int argc, char **argv)
     pthread_barrier_init(&b, NULL, nthr);
 
 
-    for (int i = 0; i < nthr; i++) {
+    for (int i = 0; i < nthr - 1; i++) {
         pthread_create(&r_id, NULL, reader, NULL);
     }
 

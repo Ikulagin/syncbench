@@ -26,7 +26,7 @@ void *reader(void *arg)
     pthread_barrier_wait(&b);
 
     while(tmp != 6) {
-        __asm __volatile ( "lock; cmpxchgl %3, %0\n\t"   \
+        __asm __volatile ( "lock cmpxchgl %3, %0\n\t"   \
                            : "=m" (*(int *)&m)     \
                            : "a" (5), "m" (*(int *)&m), "r" (1) \
                            : "memory");

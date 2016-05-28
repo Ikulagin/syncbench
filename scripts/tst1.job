@@ -1,0 +1,12 @@
+#!/bin/bash
+
+#PBS -N tst1_8
+#PBS -l nodes=cn17:ppn=8
+#PBS -q release
+#PBS -j oe
+
+cd $PBS_O_WORKDIR
+
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/research/ikulagin/workspace/syncbench/OBJ/smart_mutex/:/home/research/ikulagin/workspace/transmem/algs/libitm_eager/obj64/
+
+./tst1.out y 8

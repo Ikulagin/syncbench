@@ -147,7 +147,7 @@ int main(int argc, char **argv)
     parse_arg(argc, argv);
 
     pool = thread_pool_init(global_params[N_THREADS]);
-    global_ht = hashtable_alloc(global_params[N_BUCKETS], hash);
+    global_ht = hashtable_alloc(global_params[N_BUCKETS], (hash_fnc)hash);
 
     pool_startup(pool);
     
