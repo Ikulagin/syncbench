@@ -5,7 +5,7 @@ top_src_dir = @top_srcdir@
 
 CC = @CC@
 
-TARGETS = array_counter_tst.out
+TARGETS = array_counter_tst.out tst1.out tst2.out
 
 test_objects = hpctimer.o array_counter_tst.o
 
@@ -25,5 +25,11 @@ array_counter_tst.out: $(test_objects)
 		$(CC) $(LDFLAGS) -o $@ $^
 %.o: %.c
 		$(CC) $(CFLAGS) -o $@ -c $<
+
+tst1.out: tst1.c
+		$(CC) $(LDFLAGS) -o $@ $^
+tst2.out: tst2.c
+		$(CC) $(LDFLAGS) -o $@ $^
+
 clean:
 		rm -rf $(TARGETS) $(test_mutex_objects)
