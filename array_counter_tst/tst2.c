@@ -10,8 +10,9 @@
     (((double)(stop.tv_sec)  + (double)(stop.tv_usec / 1000000.0)) - \
      ((double)(start.tv_sec) + (double)(start.tv_usec / 1000000.0)))
 
-enum {ARRAY_SIZE = 1000,
-      LOOP_ITERATIONS = 100000000,};
+enum {ARRAY_SIZE = 1000,};
+
+const unsigned long int LOOP_ITERATIONS = (1 << 30);
 
 pthread_mutex_t m __attribute__((aligned(64))) = PTHREAD_MUTEX_INITIALIZER;
 pthread_barrier_t b;
@@ -20,15 +21,15 @@ int global_array[ARRAY_SIZE];
 void *reader(void *arg)
 {
     int tmp = *(int *)&m;
-    
-    printf("start\n");
+    volatile int old = 5;
     
     pthread_barrier_wait(&b);
 
     while(tmp != 6) {
+        old = 5;
         __asm __volatile ( "lock cmpxchgl %3, %0\n\t"   \
                            : "=m" (*(int *)&m)     \
-                           : "a" (5), "m" (*(int *)&m), "r" (1) \
+                           : "a" (old), "m" (*(int *)&m), "r" (1) \
                            : "memory");
         tmp = *(int *)&m;
     }
@@ -48,7 +49,6 @@ int main(int argc, char **argv)
 
     pthread_barrier_init(&b, NULL, nthr);
 
-
     for (int i = 0; i < nthr - 1; i++) {
         pthread_create(&r_id, NULL, reader, NULL);
     }
@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     pthread_barrier_wait(&b);
 
     TIMER_READ(begin);
-    for (int i = 0; i < LOOP_ITERATIONS; i++) {
+    for (unsigned long int i = 0; i < LOOP_ITERATIONS; i++) {
         global_array[i % ARRAY_SIZE]++;
     }
     TIMER_READ(end);

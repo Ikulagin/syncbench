@@ -20,13 +20,20 @@ int global_array[ARRAY_SIZE];
 
 void *reader(void *arg)
 {
-    int tmp = *(int *)&m;
+    int tmp = 0;
+    volatile int old = 5;
     
     pthread_barrier_wait(&b);
 
-    while(tmp != 6)
-        tmp = *(int *)&m; 
-
+    while(tmp != 6) {
+        old = 5;
+        __asm __volatile ( "lock; cmpxchgl %3, %0\n\t"            \
+                           : "=m" (*(int *)&m)                    \
+                           : "a" (old), "m" (*(int *)&m), "S" (7) \
+                           : "cc", "memory");
+        tmp = *(int *)&m;
+    }
+    
     return NULL;
 }
 
@@ -48,7 +55,7 @@ int main(int argc, char **argv)
     }
 
     pthread_barrier_wait(&b);
-
+    
     TIMER_READ(begin);
     for (int i = 0; i < LOOP_ITERATIONS; i++) {
         pthread_mutex_lock(&m);

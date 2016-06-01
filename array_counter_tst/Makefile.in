@@ -5,7 +5,7 @@ top_src_dir = @top_srcdir@
 
 CC = @CC@
 
-TARGETS = array_counter_tst.out tst1.out tst2.out
+TARGETS = array_counter_tst.out tst1.out tst2.out tst3.out
 
 test_objects = hpctimer.o array_counter_tst.o
 
@@ -29,6 +29,8 @@ array_counter_tst.out: $(test_objects)
 tst1.out: tst1.c
 		$(CC) $(LDFLAGS) -o $@ $^
 tst2.out: tst2.c
+		$(CC) $(LDFLAGS) -o $@ $^
+tst3.out: tst3.c
 		$(CC) $(LDFLAGS) -o $@ $^
 
 clean:
