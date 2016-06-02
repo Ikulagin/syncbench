@@ -23,4 +23,4 @@ libsmart_mutex.so: $(libsmart_mutex_objects)
 		$(CC) -Wall -o $@ -c $<
 
 clean:
-		rm -rf $(thread_pool_objects) $(TARGETS)
+		rm -rf $(libsmart_mutex_objects) $(TARGETS)
