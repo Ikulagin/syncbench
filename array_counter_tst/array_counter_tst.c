@@ -401,11 +401,13 @@ int main(int argc, char **argv)
     printf("all threads are joined\n");
     printf("total time: %f\n", TIMER_DIFF_SECONDS(start, stop));
     printf("smart_mutex.queue = %d\n", m_smart.__data.queue_length);
-    for (int i = 0; i < g_params.n_threads * g_params.n_threads; i++) {
-        if (i != 0 && (i % g_params.n_threads) == 0) {
-            printf("\n");
+    for (int i = 0, summ = 0; i < g_params.n_threads; i++) {
+        summ = 0;
+        for (int j = 0; j < g_params.n_threads; j++) {
+            summ += prof_array[i][j];
+            printf("%5d ", prof_array[i][j]);            
         }
-        printf("%d ", prof_array[i / g_params.n_threads][i % g_params.n_threads]);
+        printf("summ = %7d\n", summ);
     }
 
     for (int i = 0; i < g_params.n_threads; i++) {

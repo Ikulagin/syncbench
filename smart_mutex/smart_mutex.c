@@ -5,8 +5,8 @@
 
 #include "lowlevellock.h"
 
-#define LLL_MUTEX_LOCK(mutex) \
-    lll_lock((mutex)->__data.lock)
+#define LLL_MUTEX_LOCK(mutex, array)                  \
+    lll_lock((mutex)->__data.lock, (array))
 
 #define LLL_MUTEX_TRY_LOCK(mutex) \
     lll_trylock((mutex)->__data.lock)
@@ -34,7 +34,7 @@ int smart_mutex_lock(smart_mutex_t *m, int *prof_array)
     /*     do { */
     /*         if (cnt++ >= max_cnt) { */
     prof_array[__sync_fetch_and_add(&(m->__data.queue_length), 1)]++;
-    LLL_MUTEX_LOCK(m);
+    LLL_MUTEX_LOCK(m, prof_array[0]);
     /*             break; */
     /*         } */
     /*         atomic_spin_nop(); */

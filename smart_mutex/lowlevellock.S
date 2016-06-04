@@ -38,10 +38,18 @@ __lll_lock_wait:
 	jne	2f
     nop
 
-1:	movl	$SYS_futex, %eax
+1:  lock subl $0x1,0x4(%rdi)
+    pushq %rcx
+    movl	$SYS_futex, %eax
 	syscall
 
-2:	movl	%edx, %eax
+    popq %rcx
+    movl $0x1, %eax 
+    lock xadd %eax,0x4(%rdi)
+    cltq
+    addl   $0x1,(%rcx,%rax,4)
+        
+2:  movl	%edx, %eax
 	xchgl	%eax, (%rdi)	/* NB:	 lock is implied */
 
 	testl	%eax, %eax
