@@ -45,6 +45,7 @@ typedef struct global_params_s {
     int n_threads;
     int affinity;
     double (*cs_ptr)(int);
+    short smrt_mtx_contprof;
 } global_params;
 
 double cs_normal_pthread_mutex(int rank);
@@ -75,8 +76,11 @@ pid_t gettid()
 pthread_mutex_t m __attribute__((aligned (64))) = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t m_adapt __attribute__((aligned (64))) = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
 pthread_spinlock_t spin __attribute__((aligned (64)));
+
+smart_mutexattr_t m_smart_attr __attribute__((aligned (64)));
 smart_mutex_t m_smart __attribute__((aligned (64))) = SMART_MUTEX_INITIALIZER;
 int *prof_array __attribute__((aligned (64))) = NULL;
+
 int global_array[ARRAY_SIZE]  __attribute__((aligned (64)));
 
 /*The the critical section being measured with normal pthread_mutex*/
@@ -291,14 +295,16 @@ void process_arguments(int argc, char **argv)
     g_params.cs_ptr = cs_methods_array[NORMAL_PTHREAD_MTX];
     g_params.n_threads = 1;
     g_params.affinity = 0;
+    g_params.smrt_mtx_contprof = 0;
     
     while (1) {
         int option_index = 0;
         static struct option long_options[] = {
-            {"cs-method",required_argument, 0, 'c'},
-            {"threads",  required_argument, 0, 't'},
-            {"affinity", no_argument,       0, 'a'},
-            {"help",     no_argument,       0, 'h'}
+            {"cs-method",          required_argument, 0, 'c'},
+            {"threads",            required_argument, 0, 't'},
+            {"affinity",           no_argument,       0, 'a'},
+            {"smart-mtx-contprof", no_argument,       0, 's'},
+            {"help",               no_argument,       0, 'h'}
         };
 
         c = getopt_long(argc, argv, "",
@@ -324,8 +330,13 @@ void process_arguments(int argc, char **argv)
             g_params.affinity = 1;
             printf("Affinity is enabled\n");
             break;
+        case 's':
+            printf("Profiling contention of smart mutexes is enabled\n");
+            g_params.smrt_mtx_contprof = 1;
+            break;
         case 'h':
-            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, smart-mtx, stm>\n");
+            printf("./cs-test --threads <number of threads> --cs-method <normal-pthread-mtx, adaptive-pthread-mtx, pthread-spin, smart-mtx, stm>"
+                   "--smart-mtx-contprof\n");
             exit(EXIT_SUCCESS);
             break;
         default:
@@ -356,7 +367,13 @@ int main(int argc, char **argv)
     t_info = (thread_info *)calloc(sizeof(thread_info), g_params.n_threads);
     thread_id = (pthread_t *)calloc(sizeof(pthread_t), g_params.n_threads);
 
-    prof_array = (int *)malloc(sizeof(int) * g_params.n_threads);
+    if (g_params.smrt_mtx_contprof) {
+        prof_array = (int *)malloc(sizeof(int) * g_params.n_threads);
+        smart_mutexattr_init(&m_smart_attr);
+        smart_mutexattr_settype(&m_smart_attr, SMART_MUTEX_CONTENTION_PROF);
+        smart_mutexattr_setcontentionstats(&m_smart_attr, prof_array);
+        smart_mutex_init(&m_smart, &m_smart_attr);
+    }
     
     t_info[0].rank = 0;
     thread_id[0] = pthread_self();
@@ -403,7 +420,9 @@ int main(int argc, char **argv)
     }
     printf("\n");
     
-    free(prof_array);
+    if (g_params.smrt_mtx_contprof) {
+        free(prof_array);
+    }
     
     for (int i = 1, tmp = global_array[0]; i < ARRAY_SIZE; i++) {
         if (tmp != global_array[i]) {

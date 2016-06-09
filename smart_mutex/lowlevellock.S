@@ -87,7 +87,7 @@ __lll_contprof_wait:
     movl $0x1, %eax 
     lock xadd %eax,0x4(%rdi)
     cltq
-    addl   $0x1,(%rcx,%rax,4)
+    lock addl   $0x1,(%rcx,%rax,4)
         
 2:  movl	%edx, %eax
 	xchgl	%eax, (%rdi)	/* NB:	 lock is implied */

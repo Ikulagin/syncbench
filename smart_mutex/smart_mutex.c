@@ -18,7 +18,7 @@
 
 #define LLL_CONTENTION_PROF(mutex)                  \
     lll_contprof((mutex)->__data.lock, \
-                        (mutex)->__data.contention_stats)
+                        *(mutex)->__data.contention_stats)
 
 #define LLL_MUTEX_UNLOCK(mutex) \
     lll_unlock((mutex)->__data.lock)
@@ -35,6 +35,7 @@ int smart_mutex_init(smart_mutex_t *m, smart_mutexattr_t *a)
     case SMART_MUTEX_CONTENTION_PROF:
         if (tmpattr->contention_stats == NULL)
             return -1;
+        m->__data.kind = tmpattr->mutexkind;
         m->__data.contention_stats = tmpattr->contention_stats;
         break;
     case SMART_MUTEX_NORMAL:
@@ -76,8 +77,15 @@ int smart_mutex_lock(smart_mutex_t *m)
 
 int smart_mutex_unlock(smart_mutex_t *m)
 {
-    __sync_fetch_and_sub(&m->__data.queue_length, 1);
-    LLL_MUTEX_UNLOCK(m);
+
+    int type = SMART_MUTEX_TYPE(m);
+
+    if (type == SMART_MUTEX_NORMAL) {
+        LLL_MUTEX_UNLOCK(m);
+    } else if (type == SMART_MUTEX_CONTENTION_PROF) {
+        __sync_fetch_and_sub(&m->__data.queue_length, 1);
+        LLL_MUTEX_UNLOCK(m);
+    }
 
     return 0;
 }
