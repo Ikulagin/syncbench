@@ -76,7 +76,7 @@ pthread_mutex_t m __attribute__((aligned (64))) = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t m_adapt __attribute__((aligned (64))) = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
 pthread_spinlock_t spin __attribute__((aligned (64)));
 smart_mutex_t m_smart __attribute__((aligned (64))) = SMART_MUTEX_INITIALIZER;
-int **prof_array __attribute__((aligned (64))) = NULL;
+int *prof_array __attribute__((aligned (64))) = NULL;
 int global_array[ARRAY_SIZE]  __attribute__((aligned (64)));
 
 /*The the critical section being measured with normal pthread_mutex*/
@@ -148,7 +148,7 @@ double cs_smart_mutex(int rank)
         double t = 0;
 
         t = hpctimer_wtime();
-        smart_mutex_lock(&m_smart, prof_array[rank]);
+        smart_mutex_lock(&m_smart);
 
         global_array[i % ARRAY_SIZE]++;
 
@@ -356,10 +356,7 @@ int main(int argc, char **argv)
     t_info = (thread_info *)calloc(sizeof(thread_info), g_params.n_threads);
     thread_id = (pthread_t *)calloc(sizeof(pthread_t), g_params.n_threads);
 
-    prof_array = (int **)malloc(sizeof(int *) * g_params.n_threads);
-    for (int i = 0; i < g_params.n_threads; i++) {
-        prof_array[i] = malloc(sizeof(int) * g_params.n_threads);
-    }
+    prof_array = (int *)malloc(sizeof(int) * g_params.n_threads);
     
     t_info[0].rank = 0;
     thread_id[0] = pthread_self();
@@ -402,17 +399,10 @@ int main(int argc, char **argv)
     printf("total time: %f\n", TIMER_DIFF_SECONDS(start, stop));
     printf("smart_mutex.queue = %d\n", m_smart.__data.queue_length);
     for (int i = 0, summ = 0; i < g_params.n_threads; i++) {
-        summ = 0;
-        for (int j = 0; j < g_params.n_threads; j++) {
-            summ += prof_array[i][j];
-            printf("%5d ", prof_array[i][j]);            
-        }
-        printf("summ = %7d\n", summ);
+        printf("%5d ", prof_array[i]);
     }
-
-    for (int i = 0; i < g_params.n_threads; i++) {
-        free(prof_array[i]);
-    }
+    printf("\n");
+    
     free(prof_array);
     
     for (int i = 1, tmp = global_array[0]; i < ARRAY_SIZE; i++) {

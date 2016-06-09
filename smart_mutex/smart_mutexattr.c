@@ -12,7 +12,7 @@ int smart_mutexattr_init(smart_mutexattr_t *a)
     if (sizeof(struct smart_mutexattr) != sizeof(smart_mutexattr_t))
         memset(a, '\0', sizeof(*a));
 
-    ((struct smart_mutexattr *)a)->mutexkind = PTHREAD_MUTEX_NORMAL;
+    ((struct smart_mutexattr *)a)->mutexkind = SMART_MUTEX_NORMAL;
 
     return 0;
 }
@@ -32,7 +32,7 @@ int smart_mutexattr_settype(smart_mutexattr_t *a, int kind)
 }
 
 int smart_mutexattr_setcontentionstats(smart_mutexattr_t *a,
-                                       int **contention_stats)
+                                       int *contention_stats)
 {
     struct smart_mutexattr *tmpattr = NULL;
     
