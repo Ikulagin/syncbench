@@ -38,10 +38,10 @@ __lll_lock_wait:
 	jne	2f
     nop
 
-1:	movl	$SYS_futex, %eax
+1:  movl	$SYS_futex, %eax
 	syscall
 
-2:	movl	%edx, %eax
+2:  movl	%edx, %eax
 	xchgl	%eax, (%rdi)	/* NB:	 lock is implied */
 
 	testl	%eax, %eax
@@ -57,6 +57,55 @@ __lll_lock_wait:
 	cfi_endproc
 	.size	__lll_lock_wait,.-__lll_lock_wait
 
+
+    .globl	__lll_contprof_wait
+	.type	__lll_contprof_wait,@function
+	.hidden	__lll_contprof_wait
+	.align	16
+__lll_contprof_wait:
+	cfi_startproc
+	pushq	%r10
+	cfi_adjust_cfa_offset(8)
+	pushq	%rdx
+	cfi_adjust_cfa_offset(8)
+	cfi_offset(%r10, -16)
+	cfi_offset(%rdx, -24)
+	xorq	%r10, %r10	/* No timeout.  */
+	movl	$2, %edx
+	LOAD_FUTEX_WAIT (%esi)
+
+	cmpl	%edx, %eax	/* NB:	 %edx == 2 */
+	jne	2f
+    nop
+
+1:  lock subl $0x1,0x4(%rdi)
+    pushq %rcx
+    movl	$SYS_futex, %eax
+	syscall
+
+    popq %rcx
+    movl $0x1, %eax 
+    lock xadd %eax,0x4(%rdi)
+    cltq
+    lock addl   $0x1,(%rcx,%rax,4)
+        
+2:  movl	%edx, %eax
+	xchgl	%eax, (%rdi)	/* NB:	 lock is implied */
+
+	testl	%eax, %eax
+	jnz	1b
+
+	popq	%rdx
+	cfi_adjust_cfa_offset(-8)
+	cfi_restore(%rdx)
+	popq	%r10
+	cfi_adjust_cfa_offset(-8)
+	cfi_restore(%r10)
+	retq
+	cfi_endproc
+	.size	__lll_contprof_wait,.-__lll_contprof_wait
+
+        
 	.globl	__lll_unlock_wake
 	.type	__lll_unlock_wake,@function
 	.hidden	__lll_unlock_wake

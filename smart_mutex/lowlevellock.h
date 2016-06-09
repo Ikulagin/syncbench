@@ -33,22 +33,57 @@
 #define __lll_lock_asm_start LOCK_INSTR "cmpxchgl %4, %2\n\t"		      \
 			      "jz 24f\n\t"
 
-#define lll_lock(futex) \
+#define lll_lock(futex)  \
   (void)								      \
   ({ int ignore1, ignore2, ignore3;           \
        	 __asm __volatile (__lll_lock_asm_start  \
 			   "1:\tlea %2, %%" RDI_LP "\n"	     \
-			   "2:\tsub $128, %%" RSP_LP "\n"    \
+			   "3:\tsub $128, %%" RSP_LP "\n"    \
 			   ".cfi_adjust_cfa_offset 128\n"    \
-			   "3:\tcallq __lll_lock_wait\n"     \
-			   "4:\tadd $128, %%" RSP_LP "\n"    \
+			   "4:\tcallq __lll_lock_wait\n"     \
+			   "5:\tadd $128, %%" RSP_LP "\n"    \
 			   ".cfi_adjust_cfa_offset -128\n"   \
 			   "24:"                             \
-			   : "=S" (ignore1), "=D" (ignore2), "=m" (futex),\
-                 "=a" (ignore3)                     \
-               : "1" (1), "m" (futex), "3" (0), "0" (0)  \
+                           : "=S" (ignore1),             \
+                           "=D" (ignore2),               \
+                           "=m" (futex),                 \
+                           "=a" (ignore3)               \
+                           : "1" (1),                   \
+                           "m" (futex),                 \
+                           "3" (0),                     \
+                           "0" (0)                      \
 			   : "cx", "r11", "cc", "memory");		      \
     })									      \
+
+
+#define __lll_contprof_asm_start \
+    LOCK_INSTR "cmpxchgl %5, %2\n\t"   \
+	           "jz 24f\n\t"
+
+#define lll_contprof(futex, contention_stats)  \
+  (void)								      \
+  ({ int ignore1, ignore2, ignore3;           \
+       	 __asm __volatile (__lll_contprof_asm_start\
+			   "1:\tlea %2, %%" RDI_LP "\n"	     \
+               "2:\tlea %4, %%" RCX_LP "\n" \
+			   "3:\tsub $128, %%" RSP_LP "\n"    \
+			   ".cfi_adjust_cfa_offset 128\n"    \
+			   "4:\tcallq __lll_contprof_wait\n" \
+			   "5:\tadd $128, %%" RSP_LP "\n"    \
+			   ".cfi_adjust_cfa_offset -128\n"   \
+			   "24:"                             \
+                           : "=S" (ignore1),             \
+                           "=D" (ignore2),               \
+                           "=m" (futex),                 \
+                           "=a" (ignore3),               \
+                           "=m" (contention_stats)   \
+                           : "1" (1),                   \
+                           "m" (futex),                 \
+                           "3" (0),                     \
+                           "0" (0),                 \
+                           "m" (contention_stats)     \
+			   : "cx", "r11", "cc", "memory");		      \
+  })                             \
 
 
 #define __lll_unlock_asm_start LOCK_INSTR "decl %0\n\t"		      \

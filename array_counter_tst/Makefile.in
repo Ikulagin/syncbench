@@ -34,4 +34,4 @@ tst3.out: tst3.c
 		$(CC) $(LDFLAGS) -o $@ $^
 
 clean:
-		rm -rf $(TARGETS) $(test_mutex_objects)
+		rm -rf $(TARGETS) $(test_objects)
